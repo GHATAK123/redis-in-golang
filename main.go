@@ -68,6 +68,39 @@ func getKeyHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"key": key, "value": val})
 }
 
+func getAllKeysHandler(w http.ResponseWriter, r *http.Request) {
+	var cursor uint64
+	var keys []string
+	var err error
+
+	// Fetch all keys using SCAN
+	for {
+		var newKeys []string
+		newKeys, cursor, err = rdb.Scan(ctx, cursor, "*", 10).Result()
+		if err != nil {
+			http.Error(w, "Error fetching keys", http.StatusInternalServerError)
+			return
+		}
+		keys = append(keys, newKeys...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	// Fetch values for each key
+	var result []KeyValue
+	for _, key := range keys {
+		val, err := rdb.Get(ctx, key).Result()
+		if err == nil {
+			result = append(result, KeyValue{Key: key, Value: val})
+		}
+	}
+
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func deleteKeyHandler(w http.ResponseWriter, r *http.Request) {
 	var data KeyValue
 
@@ -98,8 +131,9 @@ func deleteKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	// Register handlers
-	http.HandleFunc("/set", upsertKeyHandler) // Set/Update key via POST
-	http.HandleFunc("/get", getKeyHandler)    // Get key via GET
+	http.HandleFunc("/set", upsertKeyHandler)      // Set/Update key via POST
+	http.HandleFunc("/get", getKeyHandler)         // Get key via GET
+	http.HandleFunc("/get-all", getAllKeysHandler) // Get all keys
 	http.HandleFunc("/delete", deleteKeyHandler)
 
 	// Start server
